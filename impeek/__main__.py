@@ -14,15 +14,16 @@ def look(input, output, num_imgs, total_width, row_height, vmin, vmax, cmap, res
 
     def pad_image(col_stacker):
         # Compute the amount of leftover space on the rhs
-        if len(col_stacker[-1].shape) == 2:
-            right_pad = np.zeros((row_height, total_width - cur_w))
-        elif len(col_stacker[-1].shape) == 3:
-            right_pad = np.zeros((row_height, total_width - cur_w, col_stacker[-1].shape[2]))
-        else:
-            raise RuntimeError()
+        if total_width - cur_w != 0:
+            if len(col_stacker[-1].shape) == 2:
+                right_pad = np.zeros((row_height, total_width - cur_w))
+            elif len(col_stacker[-1].shape) == 3:
+                right_pad = np.zeros((row_height, total_width - cur_w, col_stacker[-1].shape[2]))
+            else:
+                raise RuntimeError()
 
-        # Add the padding
-        col_stacker.append(right_pad)
+            # Add the padding
+            col_stacker.append(right_pad)
 
         # Create a single image
         return np.hstack(col_stacker)

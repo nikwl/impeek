@@ -8,7 +8,7 @@ with open('requirements.txt') as f:
 
 setuptools.setup(
     name="impeek",
-    version="0.0.1",
+    version="0.0.3",
     author="Nikolas Lamb",
     author_email="nikolas.lamb@gmail.com",
     description="Quickly create a collage of images using a regular expression.",
