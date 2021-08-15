@@ -50,14 +50,16 @@ def look(input, output, num_imgs, total_width, row_height, vmin, vmax, cmap, res
         new_w = int((row_height / img_h) * img_w)
         img = img.resize((new_w, row_height))
         img_w, img_h = img.size
+
+        # If the image is really big, resize it so that it takes up a whole column
+        if img_w >= total_width:
+            new_h = int((total_width / img_w) * img_h)
+            img = img.resize((total_width, new_h))
+            img_w, img_h = img.size
         logging.debug("Resized image to {}".format(img.size))
 
-        # Cannot handle really large images
-        if img_w > total_width:
-            continue
-
         # If the next image would overflow the current column, start a new column
-        if cur_w + img_w > total_width:            
+        if cur_w + img_w > total_width:
             # Create a single image from the current column, add to the stack
             row_stacker.append(pad_image(col_stacker))
 
