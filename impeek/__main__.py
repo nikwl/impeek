@@ -7,8 +7,15 @@ from PIL import Image
 import numpy as np
 from matplotlib import cm
 
+from .fire import fire
+
 
 def look(input, output, num_imgs, total_width, row_height, vmin, vmax, cmap, rescale):
+
+    if cmap == "fire":
+        cmap = fire
+    else:
+        cmap = cm.get_cmap(cmap)
 
     logging.info("Searching for files that match: {}".format(input))
 
@@ -87,7 +94,7 @@ def look(input, output, num_imgs, total_width, row_height, vmin, vmax, cmap, res
         if cmap is not None and \
             (len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[-1] == 1)
         ):  
-            img = (cm.get_cmap(cmap)(img / 255) * 255)
+            img = (cmap(img / 255) * 255)
 
         # Convert back to a PIL image
         img = Image.fromarray(img.astype(np.uint8))
