@@ -1,16 +1,35 @@
 import argparse
 import logging
 import pathlib
+import io
+from argparse import RawTextHelpFormatter
 
 import PIL
 from PIL import Image
 import numpy as np
 from matplotlib import cm
+import matplotlib.pyplot as plt
+
+import cv2
 
 from .fire import fire
 
+ARROW_KEYS = {
+    'up': [82, 119],
+    'down': [84, 115],
+    'left': [81, 97],
+    'right': [83, 100]
+}
 
-def look(input, output, num_imgs, total_width, row_height, vmin, vmax, cmap, rescale):
+def plt2np():
+    with io.BytesIO() as buff:
+        plt.savefig(buff, format='raw')
+        buff.seek(0)
+        data = np.frombuffer(buff.getvalue(), dtype=np.uint8)
+    w, h = plt.gca().figure.canvas.get_width_height()
+    return data.reshape((int(h), int(w), -1))
+
+def look(input, vmin, vmax, cmap, rescale, use_mpl, scale):
 
     if cmap == "fire":
         cmap = fire
@@ -19,162 +38,143 @@ def look(input, output, num_imgs, total_width, row_height, vmin, vmax, cmap, res
 
     logging.info("Searching for files that match: {}".format(input))
 
-    def pad_image(col_stacker):
-        # Compute the amount of leftover space on the rhs
-        if total_width - cur_w != 0:
-            if len(col_stacker[-1].shape) == 2:
-                right_pad = np.zeros((row_height, total_width - cur_w))
-            elif len(col_stacker[-1].shape) == 3:
-                right_pad = np.zeros((row_height, total_width - cur_w, col_stacker[-1].shape[2]))
-            else:
-                raise RuntimeError()
+    img_queue = []
+    ptr = -1
+    iterator = pathlib.Path(".").glob(input)
 
-            # Add the padding
-            col_stacker.append(right_pad)
+    while True:
+        if ptr >= len(img_queue) or len(img_queue) == 0:
+            try:
+                # Load the next image
+                while True:
+                    f_in = next(iterator)
+                    try:
+                        img = np.array(Image.open(f_in))
+                        break
+                    except PIL.UnidentifiedImageError:
+                        pass
+                    
+                if use_mpl:
+                    plt.imshow(np.array(img), cmap=cmap, vmin=vmin, vmax=vmax)
+                    plt.colorbar()
+                    img = plt2np()
+                    plt.close()
+                else:
+                    # Make the image optimally viewable
+                    if rescale:
+                        if vmin is None:
+                            _min = img.min()
+                        else:
+                            _min = vmin
+                        if vmax is None:
+                            _max = img.max()
+                        else:
+                            _max = vmax
+                        img = np.clip((img - _min) / (_max - _min), 0.0, 1.0) * 255
 
-        # Create a single image
-        return np.hstack(col_stacker)
+                    # Can we apply a colormap?
+                    if cmap is not None and \
+                        (len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[-1] == 1)
+                    ):  
+                        img = (cmap(img / 255) * 255)
+                    
+                # Standardize the image size
+                img = Image.fromarray(img.astype(np.uint8)).convert("RGB")
+                img = img.resize((np.array(img.size)*scale).astype(int), Image.ANTIALIAS)
+                img = np.array(np.array(img))
 
-    row_stacker = []
-    col_stacker = []
-    imgs_processed = 0
-    cur_w = 0
-    for f_in in pathlib.Path(".").glob(input):
+                # Append to the queue
+                img_queue.append((str(f_in), img))
+            except StopIteration:
+                ptr = len(img_queue)-1
+                logging.debug("Reached end of list")
+        elif ptr <= 0:
+            logging.debug("Reached beginning of list")
+            ptr = 0
+
+        if len(img_queue) == 0:
+            logging.info("No images found")
+            break
         
-        # Break early
-        if imgs_processed >= num_imgs:
-            break        
+        logging.info("Displaying image: {}".format(img_queue[ptr][0]))
 
-        # Try to load the next image
-        logging.debug("Attempting to load file {}".format(f_in))
-        try:
-            img =  Image.open(f_in)
-        except PIL.UnidentifiedImageError:
-            continue
-        logging.debug("Loaded image with shape {} from {}".format(img.size, f_in))
-        
-        # Resize image to correct dimension
-        img_w, img_h = img.size
-        new_w = int((row_height / img_h) * img_w)
-        img = img.resize((new_w, row_height))
-        img_w, img_h = img.size
+        # Show the image
+        cv2.imshow(input, cv2.cvtColor(img_queue[ptr][1], cv2.COLOR_BGR2RGB))
 
-        # If the image is really big, resize it so that it takes up a whole column
-        if img_w >= total_width:
-            new_h = int((total_width / img_w) * img_h)
-            img = img.resize((total_width, new_h))
-            img_w, img_h = img.size
-        logging.debug("Resized image to {}".format(img.size))
-
-        # If the next image would overflow the current column, start a new column
-        if cur_w + img_w > total_width:
-            # Create a single image from the current column, add to the stack
-            row_stacker.append(pad_image(col_stacker))
-
-            # Reset the current column
-            col_stacker = []
-            cur_w = 0
-
-        # Convert to numpy array
-        img = np.array(img)
-
-        # Make the image optimally viewable
-        if rescale:
-            if vmin is None:
-                _min = img.min()
-            else:
-                _min = vmin
-            if vmax is None:
-                _max = img.max()
-            else:
-                _max = vmin
-            img = np.clip((img - _min) / (_max - _min), 0.0, 1.0) * 255
-
-        # Can we apply a colormap?
-        if cmap is not None and \
-            (len(img.shape) == 2 or (len(img.shape) == 3 and img.shape[-1] == 1)
-        ):  
-            img = (cmap(img / 255) * 255)
-
-        # Convert back to a PIL image
-        img = Image.fromarray(img.astype(np.uint8))
-
-        # Add to the current column
-        cur_w += img_w
-        imgs_processed += 1
-        col_stacker.append(np.array(img.convert("RGB")))
-
-    if len(col_stacker) == 0:
-        logging.info("No images found")
-        return
-
-    # Create a single image from the current column, add to the stack
-    row_stacker.append(pad_image(col_stacker))
-
-    # Save
-    logging.info("Saving image to {}".format(output))
-    Image.fromarray(np.vstack(row_stacker).astype(np.uint8)).save(output)
+        # Get input from the user
+        keypress = cv2.waitKey(0)
+        if keypress in ARROW_KEYS['right']:
+            ptr += 1
+        elif keypress in ARROW_KEYS['left']:
+            ptr -= 1
+        elif keypress == ord('q'):
+            break
+        logging.debug("Got keypress: {}".format(keypress))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="A script to create a single collage of images from many"
-        + "images saved on disk. Can handle any image type. Can be called "
-        + "recursively. Can be passed a regular expression to be matched to  "
-        + "specific types of images, or specific naming patterns."
+        description="Script to quickly 'peek' at images on disk. Call with a "
+        + "regular expression to traverse multiple directories or traverse "
+        + "directories recursively. Call with '--rescale' to automatically "
+        + "rescale the pixel values such that they fall between 0 and 255. "
+        + "Call with a '--cmap' to apply a colormap to single-channel images. "
+        + "Call with '--use_mpl' to use the matplotlib backend which will "
+        + "display raw color values with a colorbar. Must be called as a module. \n\n"
+        + "example: python -m impeek \"../**/*.png\" --cmap fire\n"
+        + "  Display all png images in any directory rooted above the current "
+        + "directory, using fire colormap.",
+        formatter_class=RawTextHelpFormatter
     )
     parser.add_argument(
         dest="input", 
         type=str, 
-        help="Path to the directory containing the image files."
-    )
-    parser.add_argument(
-        dest="output", 
-        type=str, 
-        help="Path that the output image will be saved to."
-    )
-    parser.add_argument(
-        "--num_imgs",
-        type=int,
-        default=100,
-        help="How many images in total (maximum) should be displayed."
-    )
-    parser.add_argument(
-        "--width",
-        type=int,
-        default=1920,
-        help="Output image width, in pixels."
-    )
-    parser.add_argument(
-        "--row_height",
-        type=int,
-        default=480,
-        help="Hight of each row of images, in pixels."
+        help="A regular expression used to find files. If you use the '*' operator "
+        + "you will need to enclose this argument in double quotes."
     )
     parser.add_argument(
         "--vmin", 
         type=int, 
         default=None,
-        help="",
+        help="Minimum pixel intensity value to display. All pixel values lower "
+        + "than this will be clipped to 0."
     )
     parser.add_argument(
         "--vmax",
         type=int,
         default=None,
-        help="",
+        help="Maximum pixel intensity value to display. All pixel values higher "
+        + "than this will be clipped to 255."
     )    
     parser.add_argument(
         "--cmap",
-        default="jet",
+        default="fire",
         type=str, 
-        help="Colormap to use."
+        help="Colormap to use. Single channel images will be converted to RGB "
+        + "using this colormap. Has no effect on multi-channel (color) images."
     )
     parser.add_argument(
         "--rescale",
         action="store_true",
         default=False,
-        help="If passed will rescale the image values such that they are optimally " 
-        + "visible. Use vmin and vmax to define a specific rescale range."
+        help="If passed will rescale the pixel values such that they fall between "
+        + "0 and 255. By default uses the min and max values of the image to " 
+        + "scale the pixel values. If vmin or vmax are passed these are used "
+        + "instead."
+    )
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=1.0,
+        help="Apply a dimensional scale to the image. Default is 1.0."
+    )
+    parser.add_argument(
+        "--use_mpl",
+        action="store_true",
+        default=False,
+        help="If true will use the matplotlib engine to display the image. See "
+        + "the documentation for matplotlib.imshow for more information. This "
+        + "will also display a colorbar with the raw pixel values before rescaling."
     )
     parser.add_argument(
         "--debug",
@@ -203,12 +203,10 @@ if __name__ == "__main__":
 
     look(
         args.input, 
-        args.output, 
-        args.num_imgs, 
-        args.width,
-        args.row_height, 
         args.vmin,
         args.vmax,
         args.cmap,
         args.rescale,
+        args.use_mpl,
+        args.scale,
     )

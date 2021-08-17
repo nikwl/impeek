@@ -8,14 +8,14 @@ with open('requirements.txt') as f:
 
 setuptools.setup(
     name="impeek",
-    version="0.0.7",
+    version="0.0.8",
     author="Nikolas Lamb",
     author_email="nikolas.lamb@gmail.com",
     description="Quickly create a collage of images using a regular expression.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/nikwl/impeek",
-	packages=["impeek", "imflip"],
+	packages=["impeek", "imdump"],
 	license='LICENSE',
 	install_requires=requirements,
     classifiers=[
