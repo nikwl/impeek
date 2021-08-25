@@ -1,6 +1,6 @@
 # impeek
 
-A command line function to visualize images in large directories using a regular expression.
+Script to quickly 'peek' at images on disk.
 
 ## Installation 
 
